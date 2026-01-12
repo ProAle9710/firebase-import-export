@@ -1,0 +1,24 @@
+{
+  "name": "firestore-export-import",
+  "version": "1.0.0",
+  "description": "Herramientas para exportar e importar datos de Firestore",
+  "main": "index.js",
+  "scripts": {
+    "export": "node export-firestore.js",
+    "import": "node import-firestore.js",
+    "test-permissions": "node test-permissions.js",
+    "install-deps": "npm install"
+  },
+  "keywords": [
+    "firebase",
+    "firestore",
+    "export",
+    "import",
+    "backup"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}
