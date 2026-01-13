@@ -9,18 +9,23 @@ const args = process.argv.slice(2);
 function showHelp() {
   console.log('\n🔥 Firebase Utils - Herramientas unificadas para Firestore\n');
   console.log('📖 Uso: node firebase-utils.js <acción> [opciones]\n');
-  console.log('Acciones disponibles:');
+  console.log('═══════════════════════════════════════════════════════════════\n');
+  console.log('📋 ACCIONES DISPONIBLES:\n');
   console.log('  -e, --export     Exportar todas las colecciones de Firestore');
   console.log('  -i, --import     Importar datos desde un archivo JSON');
   console.log('  -s, --search     Buscar un valor en todas las colecciones');
-  console.log('  -t, --test       Probar permisos de la cuenta de servicio\n');
-  console.log('Opciones comunes:');
-  console.log('  -k, --key <archivo>     Archivo de credenciales de Firebase (requerido para todas las acciones)');
-  console.log('  -h, --help              Mostrar esta ayuda\n');
-  console.log('Ejemplos:');
+  console.log('  -t, --test       Probar permisos de la cuenta de servicio');
+  console.log('  -h, --help       Mostrar esta ayuda\n');
+  console.log('═══════════════════════════════════════════════════════════════\n');
+  console.log('⚙️  OPCIONES COMUNES:\n');
+  console.log('  -k, --key <archivo>     Archivo de credenciales de Firebase (requerido)');
+  console.log('  -h, --help              Mostrar ayuda general o específica de una acción\n');
+  console.log('═══════════════════════════════════════════════════════════════\n');
+  console.log('📚 EJEMPLOS DE USO:\n');
   console.log('  # Exportar');
   console.log('  node firebase-utils.js -e -k keys/firebase-key.json');
-  console.log('  node firebase-utils.js --export --key keys/firebase-key.json -o backup.json\n');
+  console.log('  node firebase-utils.js --export --key keys/firebase-key.json -o backup.json');
+  console.log('  node firebase-utils.js -e -k keys/firebase-key.json --with-indexes --with-rules\n');
   console.log('  # Importar');
   console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json\n');
   console.log('  # Buscar');
@@ -28,8 +33,14 @@ function showHelp() {
   console.log('  node firebase-utils.js --search --key keys/firebase-key.json --value "12345" --collection usuarios\n');
   console.log('  # Probar permisos');
   console.log('  node firebase-utils.js -t -k keys/firebase-key.json\n');
-  console.log('Para más detalles sobre cada acción, usa: node firebase-utils.js <acción> --help\n');
-  process.exit(1);
+  console.log('  # Ayuda');
+  console.log('  node firebase-utils.js --help');
+  console.log('  node firebase-utils.js -h');
+  console.log('  node firebase-utils.js -e --help    # Ayuda específica de export\n');
+  console.log('═══════════════════════════════════════════════════════════════\n');
+  console.log('💡 Para más detalles sobre cada acción, usa:');
+  console.log('   node firebase-utils.js <acción> --help\n');
+  process.exit(0);
 }
 
 // Función para parsear argumentos
@@ -39,6 +50,15 @@ function parseArgs() {
     keyFile: null,
     options: {}
   };
+  
+  // Verificar si solo se pide ayuda
+  if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
+    if (args.length > 1 && args[1] !== '-h' && args[1] !== '--help') {
+      // Ayuda específica de una acción
+      return { action: 'help', helpAction: args[1] };
+    }
+    return { action: 'help' };
+  }
   
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -52,6 +72,11 @@ function parseArgs() {
       parsed.action = 'search';
     } else if (arg === '-t' || arg === '--test') {
       parsed.action = 'test';
+    } else if (arg === 'help' || arg === '--help-action') {
+      parsed.action = 'help';
+      if (args[i + 1]) {
+        parsed.helpAction = args[i + 1];
+      }
     }
     // Archivo de key
     else if ((arg === '-k' || arg === '--key') && args[i + 1]) {
@@ -62,6 +87,10 @@ function parseArgs() {
     else if ((arg === '-o' || arg === '--output') && args[i + 1]) {
       parsed.options.output = args[i + 1];
       i++;
+    } else if (arg === '--with-indexes') {
+      parsed.options.withIndexes = true;
+    } else if (arg === '--with-rules') {
+      parsed.options.withRules = true;
     }
     // Opciones de import
     else if ((arg === '-f' || arg === '--file') && args[i + 1]) {
@@ -89,9 +118,15 @@ function parseArgs() {
     // Ayuda
     else if (arg === '-h' || arg === '--help') {
       if (parsed.action) {
-        showActionHelp(parsed.action);
+        parsed.action = 'help';
+        parsed.helpAction = parsed.action;
+      } else if (args[i + 1]) {
+        // Ayuda específica de una acción: --help export
+        parsed.action = 'help';
+        parsed.helpAction = args[i + 1];
+        i++;
       } else {
-        showHelp();
+        parsed.action = 'help';
       }
     }
   }
@@ -104,47 +139,76 @@ function showActionHelp(action) {
   switch (action) {
     case 'export':
       console.log('\n📖 Exportar Firestore\n');
-      console.log('Uso: node firebase-utils.js -e -k <archivo-key.json> [-o <archivo-salida.json>]\n');
+      console.log('Uso: node firebase-utils.js -e -k <archivo-key.json> [-o <archivo-salida.json>] [opciones]\n');
       console.log('Parámetros:');
       console.log('  -k, --key <archivo>        Archivo de credenciales (requerido)');
       console.log('  -o, --output <archivo>     Archivo de salida (opcional, por defecto: backup.json)\n');
+      console.log('Opciones:');
+      console.log('  --with-indexes            Incluir índices de Firestore en la exportación');
+      console.log('  --with-rules              Incluir reglas de seguridad en la exportación\n');
       console.log('Ejemplo:');
-      console.log('  node firebase-utils.js -e -k keys/firebase-key.json -o mi-backup.json\n');
+      console.log('  node firebase-utils.js -e -k keys/firebase-key.json -o mi-backup.json');
+      console.log('  node firebase-utils.js -e -k keys/firebase-key.json --with-indexes --with-rules\n');
       break;
     case 'import':
       console.log('\n📖 Importar Firestore\n');
+      console.log('═══════════════════════════════════════════════════════════════\n');
       console.log('Uso: node firebase-utils.js -i -k <archivo-key.json> -f <archivo-backup.json>\n');
-      console.log('Parámetros:');
-      console.log('  -k, --key <archivo>        Archivo de credenciales del proyecto DESTINO (requerido)');
-      console.log('  -f, --file <archivo>       Archivo de backup a importar (requerido)\n');
-      console.log('Ejemplo:');
-      console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json\n');
+      console.log('Parámetros requeridos:');
+      console.log('  -k, --key <archivo>        Archivo de credenciales del proyecto DESTINO');
+      console.log('  -f, --file <archivo>       Archivo de backup a importar\n');
+      console.log('Notas:');
+      console.log('  • Si el backup incluye índices, se importarán automáticamente');
+      console.log('  • Si el backup incluye reglas, se importarán automáticamente');
+      console.log('  • Los índices pueden tardar en aplicarse después de la importación\n');
+      console.log('Ejemplos:');
+      console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json');
+      console.log('  node firebase-utils.js --import --key keys/dest-key.json --file mi-backup.json\n');
       break;
     case 'search':
       console.log('\n📖 Buscar en Firestore\n');
+      console.log('═══════════════════════════════════════════════════════════════\n');
       console.log('Uso: node firebase-utils.js -s -k <archivo-key.json> -v <valor> [opciones]\n');
-      console.log('Parámetros:');
-      console.log('  -k, --key <archivo>        Archivo de credenciales (requerido)');
-      console.log('  -v, --value <valor>        Valor a buscar (requerido)');
+      console.log('Parámetros requeridos:');
+      console.log('  -k, --key <archivo>        Archivo de credenciales');
+      console.log('  -v, --value <valor>        Valor a buscar\n');
+      console.log('Opciones:');
       console.log('  --collection <nombre>      Buscar solo en una colección específica');
-      console.log('  --exact                    Buscar coincidencias exactas');
-      console.log('  --case-sensitive           Búsqueda case-sensitive');
+      console.log('  --exact                    Buscar coincidencias exactas (case-sensitive)');
+      console.log('  --case-sensitive           Búsqueda case-sensitive (por defecto es case-insensitive)');
       console.log('  --limit <número>           Limitar resultados por colección (por defecto: 100)');
-      console.log('  --output <archivo>         Guardar resultados en JSON\n');
-      console.log('Ejemplo:');
+      console.log('  --output <archivo>         Guardar resultados en un archivo JSON\n');
+      console.log('Características:');
+      console.log('  • Busca en nombres de colecciones');
+      console.log('  • Busca en IDs de documentos');
+      console.log('  • Busca en todos los campos de forma recursiva');
+      console.log('  • Busca en objetos anidados y arrays\n');
+      console.log('Ejemplos:');
       console.log('  node firebase-utils.js -s -k keys/firebase-key.json -v "juan@email.com"');
-      console.log('  node firebase-utils.js -s -k keys/firebase-key.json -v "12345" --collection usuarios\n');
+      console.log('  node firebase-utils.js -s -k keys/firebase-key.json -v "12345" --collection usuarios');
+      console.log('  node firebase-utils.js -s -k keys/firebase-key.json -v "Admin" --exact --case-sensitive\n');
       break;
     case 'test':
       console.log('\n📖 Probar Permisos\n');
+      console.log('═══════════════════════════════════════════════════════════════\n');
       console.log('Uso: node firebase-utils.js -t -k <archivo-key.json>\n');
-      console.log('Parámetros:');
-      console.log('  -k, --key <archivo>        Archivo de credenciales (requerido)\n');
+      console.log('Parámetros requeridos:');
+      console.log('  -k, --key <archivo>        Archivo de credenciales\n');
+      console.log('Esta acción verifica:');
+      console.log('  • Que las credenciales sean válidas');
+      console.log('  • Que se puedan listar colecciones');
+      console.log('  • Que se puedan leer documentos');
+      console.log('  • Que funcione la paginación\n');
       console.log('Ejemplo:');
       console.log('  node firebase-utils.js -t -k keys/firebase-key.json\n');
       break;
+    default:
+      console.log(`\n❌ Acción desconocida: ${action}\n`);
+      console.log('Acciones disponibles: -e (export), -i (import), -s (search), -t (test)\n');
+      showHelp();
+      break;
   }
-  process.exit(1);
+  process.exit(0);
 }
 
 // Función para cargar credenciales
@@ -188,7 +252,10 @@ function initializeFirebase(serviceAccount) {
     }
   }
   
-  return admin.firestore();
+  return {
+    db: admin.firestore(),
+    serviceAccount: serviceAccount
+  };
 }
 
 // ============================================================================
@@ -209,20 +276,193 @@ async function exportCollection(db, collectionName) {
   return documents;
 }
 
-async function exportAllCollections(db, outputFile) {
+// Función para exportar índices de Firestore
+async function exportIndexes(serviceAccount) {
+  console.log('📑 Exportando índices de Firestore...');
+  
+  try {
+    // Usar la API REST de Google Cloud para obtener índices
+    const { GoogleAuth } = require('google-auth-library');
+    const auth = new GoogleAuth({
+      credentials: serviceAccount,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    
+    const client = await auth.getClient();
+    const projectId = serviceAccount.project_id;
+    const accessToken = await client.getAccessToken();
+    
+    const https = require('https');
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/indexes`;
+    
+    return new Promise((resolve, reject) => {
+      https.get(url, {
+        headers: {
+          'Authorization': `Bearer ${accessToken.token}`,
+          'Content-Type': 'application/json'
+        }
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            if (response.error) {
+              console.log(`   ⚠️  No se pudieron obtener índices: ${response.error.message}`);
+              resolve(null);
+            } else {
+              const indexes = response.indexes || [];
+              console.log(`   ✅ ${indexes.length} índice(s) exportado(s)`);
+              resolve(indexes);
+            }
+          } catch (error) {
+            console.log(`   ⚠️  Error al parsear índices: ${error.message}`);
+            resolve(null);
+          }
+        });
+      }).on('error', (error) => {
+        console.log(`   ⚠️  Error al obtener índices: ${error.message}`);
+        resolve(null);
+      });
+    });
+  } catch (error) {
+    console.log(`   ⚠️  Error al exportar índices: ${error.message}`);
+    return null;
+  }
+}
+
+// Función para exportar reglas de seguridad de Firestore
+async function exportRules(serviceAccount) {
+  console.log('🔒 Exportando reglas de seguridad de Firestore...');
+  
+  try {
+    const { GoogleAuth } = require('google-auth-library');
+    const auth = new GoogleAuth({
+      credentials: serviceAccount,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    
+    const client = await auth.getClient();
+    const projectId = serviceAccount.project_id;
+    const accessToken = await client.getAccessToken();
+    
+    const https = require('https');
+    // Obtener el ruleset más reciente
+    const listUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/rulesets`;
+    
+    return new Promise((resolve, reject) => {
+      https.get(listUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken.token}`,
+          'Content-Type': 'application/json'
+        }
+      }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            if (response.error) {
+              console.log(`   ⚠️  No se pudieron obtener reglas: ${response.error.message}`);
+              resolve(null);
+            } else {
+              const rulesets = response.rulesets || [];
+              if (rulesets.length > 0) {
+                // Obtener el ruleset más reciente
+                const latestRuleset = rulesets.sort((a, b) => 
+                  new Date(b.createTime) - new Date(a.createTime)
+                )[0];
+                
+                // Obtener el contenido del ruleset
+                const getUrl = `https://firestore.googleapis.com/v1/${latestRuleset.name}`;
+                https.get(getUrl, {
+                  headers: {
+                    'Authorization': `Bearer ${accessToken.token}`,
+                    'Content-Type': 'application/json'
+                  }
+                }, (res2) => {
+                  let data2 = '';
+                  res2.on('data', (chunk) => { data2 += chunk; });
+                  res2.on('end', () => {
+                    try {
+                      const rulesetData = JSON.parse(data2);
+                      if (rulesetData.error) {
+                        console.log(`   ⚠️  No se pudo obtener el contenido de las reglas: ${rulesetData.error.message}`);
+                        resolve(null);
+                      } else {
+                        const rules = rulesetData.source?.files?.[0]?.content || null;
+                        console.log(`   ✅ Reglas de seguridad exportadas`);
+                        resolve(rules);
+                      }
+                    } catch (error) {
+                      console.log(`   ⚠️  Error al parsear reglas: ${error.message}`);
+                      resolve(null);
+                    }
+                  });
+                }).on('error', (error) => {
+                  console.log(`   ⚠️  Error al obtener reglas: ${error.message}`);
+                  resolve(null);
+                });
+              } else {
+                console.log(`   ⚠️  No se encontraron reglas de seguridad`);
+                resolve(null);
+              }
+            }
+          } catch (error) {
+            console.log(`   ⚠️  Error al parsear lista de reglas: ${error.message}`);
+            resolve(null);
+          }
+        });
+      }).on('error', (error) => {
+        console.log(`   ⚠️  Error al obtener lista de reglas: ${error.message}`);
+        resolve(null);
+      });
+    });
+  } catch (error) {
+    console.log(`   ⚠️  Error al exportar reglas: ${error.message}`);
+    return null;
+  }
+}
+
+async function exportAllCollections(db, outputFile, serviceAccount, options = {}) {
   console.log('🚀 Iniciando exportación completa de Firestore...\n');
   
-  const backup = {};
+  const backup = {
+    _metadata: {
+      exportDate: new Date().toISOString(),
+      version: '2.0.0'
+    },
+    collections: {}
+  };
+  
   const collections = await db.listCollections();
   
   console.log(`📋 Se encontraron ${collections.length} colecciones\n`);
   
   for (const collection of collections) {
     try {
-      backup[collection.id] = await exportCollection(db, collection.id);
+      backup.collections[collection.id] = await exportCollection(db, collection.id);
     } catch (error) {
       console.error(`   ❌ Error al exportar ${collection.id}: ${error.message}`);
-      backup[collection.id] = { _error: error.message };
+      backup.collections[collection.id] = { _error: error.message };
+    }
+  }
+  
+  // Exportar índices si se solicita
+  if (options.withIndexes) {
+    console.log('');
+    const indexes = await exportIndexes(serviceAccount);
+    if (indexes !== null) {
+      backup.indexes = indexes;
+    }
+  }
+  
+  // Exportar reglas si se solicita
+  if (options.withRules) {
+    console.log('');
+    const rules = await exportRules(serviceAccount);
+    if (rules !== null) {
+      backup.rules = rules;
     }
   }
   
@@ -288,7 +528,154 @@ async function importCollection(db, collectionName, documents) {
   return docCount;
 }
 
-async function importBackup(db, backupFile) {
+// Función para importar índices de Firestore
+async function importIndexes(serviceAccount, indexes) {
+  if (!indexes || !Array.isArray(indexes) || indexes.length === 0) {
+    return;
+  }
+  
+  console.log('📑 Importando índices de Firestore...');
+  
+  try {
+    const { GoogleAuth } = require('google-auth-library');
+    const auth = new GoogleAuth({
+      credentials: serviceAccount,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    
+    const client = await auth.getClient();
+    const projectId = serviceAccount.project_id;
+    const accessToken = await client.getAccessToken();
+    
+    const https = require('https');
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/indexes`;
+    
+    // Importar cada índice
+    let imported = 0;
+    for (const index of indexes) {
+      try {
+        await new Promise((resolve, reject) => {
+          const postData = JSON.stringify(index);
+          const options = {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken.token}`,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData)
+            }
+          };
+          
+          const req = https.request(url, options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+              if (res.statusCode >= 200 && res.statusCode < 300) {
+                imported++;
+                resolve();
+              } else {
+                const error = JSON.parse(data);
+                console.log(`   ⚠️  Error al importar índice: ${error.error?.message || 'Error desconocido'}`);
+                resolve(); // Continuar con el siguiente
+              }
+            });
+          });
+          
+          req.on('error', (error) => {
+            console.log(`   ⚠️  Error de conexión: ${error.message}`);
+            resolve(); // Continuar con el siguiente
+          });
+          
+          req.write(postData);
+          req.end();
+        });
+      } catch (error) {
+        console.log(`   ⚠️  Error al procesar índice: ${error.message}`);
+      }
+    }
+    
+    console.log(`   ✅ ${imported} índice(s) importado(s) (puede tomar tiempo en aplicarse)`);
+  } catch (error) {
+    console.log(`   ⚠️  Error al importar índices: ${error.message}`);
+    console.log(`   💡 Nota: Los índices pueden requerir configuración manual en la consola de Firebase`);
+  }
+}
+
+// Función para importar reglas de seguridad de Firestore
+async function importRules(serviceAccount, rules) {
+  if (!rules) {
+    return;
+  }
+  
+  console.log('🔒 Importando reglas de seguridad de Firestore...');
+  
+  try {
+    const { GoogleAuth } = require('google-auth-library');
+    const auth = new GoogleAuth({
+      credentials: serviceAccount,
+      scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    
+    const client = await auth.getClient();
+    const projectId = serviceAccount.project_id;
+    const accessToken = await client.getAccessToken();
+    
+    const https = require('https');
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/rulesets`;
+    
+    const ruleset = {
+      source: {
+        files: [{
+          name: 'firestore.rules',
+          content: rules
+        }]
+      }
+    };
+    
+    return new Promise((resolve, reject) => {
+      const postData = JSON.stringify(ruleset);
+      const options = {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken.token}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      };
+      
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`   ✅ Reglas de seguridad importadas exitosamente`);
+            resolve();
+          } else {
+            try {
+              const error = JSON.parse(data);
+              console.log(`   ⚠️  Error al importar reglas: ${error.error?.message || 'Error desconocido'}`);
+            } catch (e) {
+              console.log(`   ⚠️  Error al importar reglas: ${res.statusCode} ${res.statusMessage}`);
+            }
+            resolve();
+          }
+        });
+      });
+      
+      req.on('error', (error) => {
+        console.log(`   ⚠️  Error de conexión: ${error.message}`);
+        resolve();
+      });
+      
+      req.write(postData);
+      req.end();
+    });
+  } catch (error) {
+    console.log(`   ⚠️  Error al importar reglas: ${error.message}`);
+    console.log(`   💡 Nota: Las reglas pueden requerir configuración manual en la consola de Firebase`);
+  }
+}
+
+async function importBackup(db, backupFile, serviceAccount, options = {}) {
   console.log(`📖 Leyendo archivo de backup: ${backupFile}...\n`);
   
   if (!fs.existsSync(backupFile)) {
@@ -296,9 +683,24 @@ async function importBackup(db, backupFile) {
   }
   
   const backupData = JSON.parse(fs.readFileSync(backupFile, 'utf8'));
-  const collections = Object.keys(backupData);
   
-  console.log(`📋 Se encontraron ${collections.length} colecciones para importar\n`);
+  // Manejar formato nuevo (con _metadata y collections) y formato antiguo
+  let collections;
+  if (backupData.collections) {
+    // Formato nuevo
+    collections = backupData.collections;
+    if (backupData._metadata) {
+      console.log(`📅 Fecha de exportación: ${backupData._metadata.exportDate || 'N/A'}`);
+      console.log(`📦 Versión del backup: ${backupData._metadata.version || 'N/A'}\n`);
+    }
+  } else {
+    // Formato antiguo (compatibilidad hacia atrás)
+    collections = backupData;
+  }
+  
+  const collectionNames = Object.keys(collections);
+  
+  console.log(`📋 Se encontraron ${collectionNames.length} colecciones para importar\n`);
   
   const results = {
     success: [],
@@ -306,9 +708,9 @@ async function importBackup(db, backupFile) {
     totalDocuments: 0
   };
   
-  for (const collectionName of collections) {
+  for (const collectionName of collectionNames) {
     try {
-      const documents = backupData[collectionName];
+      const documents = collections[collectionName];
       
       if (documents && documents._error) {
         console.log(`⚠️  Colección ${collectionName} tiene un error: ${documents._error}`);
@@ -330,6 +732,20 @@ async function importBackup(db, backupFile) {
       results.errors.push({ collection: collectionName, error: error.message });
     }
     
+    console.log('');
+  }
+  
+  // Importar índices si están presentes
+  if (backupData.indexes && Array.isArray(backupData.indexes) && backupData.indexes.length > 0) {
+    console.log('');
+    await importIndexes(serviceAccount, backupData.indexes);
+    console.log('');
+  }
+  
+  // Importar reglas si están presentes
+  if (backupData.rules) {
+    console.log('');
+    await importRules(serviceAccount, backupData.rules);
     console.log('');
   }
   
@@ -701,25 +1117,37 @@ async function testPermissions(db) {
 // ============================================================================
 
 async function main() {
-  if (args.length === 0) {
-    showHelp();
-  }
-  
   const parsed = parseArgs();
+  
+  // Manejar ayuda
+  if (parsed.action === 'help' || args.length === 0 || (args.length === 1 && (args[0] === '-h' || args[0] === '--help'))) {
+    if (parsed.helpAction) {
+      showActionHelp(parsed.helpAction);
+    } else {
+      showHelp();
+    }
+    return;
+  }
   
   if (!parsed.action) {
     console.error('❌ Error: Debes especificar una acción (-e, -i, -s, -t)');
+    console.error('   Usa -h o --help para ver la ayuda\n');
     showHelp();
   }
   
   const serviceAccount = loadCredentials(parsed.keyFile);
-  const db = initializeFirebase(serviceAccount);
+  const firebaseInit = initializeFirebase(serviceAccount);
+  const db = firebaseInit.db;
   
   try {
     switch (parsed.action) {
       case 'export':
         const outputFile = parsed.options.output || 'backup.json';
-        await exportAllCollections(db, outputFile);
+        const exportOptions = {
+          withIndexes: parsed.options.withIndexes || false,
+          withRules: parsed.options.withRules || false
+        };
+        await exportAllCollections(db, outputFile, serviceAccount, exportOptions);
         break;
         
       case 'import':
@@ -728,7 +1156,7 @@ async function main() {
           showActionHelp('import');
         }
         console.log('🚀 Iniciando importación de Firestore...\n');
-        await importBackup(db, parsed.options.backupFile);
+        await importBackup(db, parsed.options.backupFile, serviceAccount);
         break;
         
       case 'search':
