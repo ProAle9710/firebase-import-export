@@ -1,12 +1,16 @@
 {
   "name": "firestore-export-import",
-  "version": "1.0.0",
-  "description": "Herramientas para exportar e importar datos de Firestore",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "Herramientas unificadas para exportar, importar, buscar y gestionar datos de Firestore",
+  "main": "firebase-utils.js",
+  "bin": {
+    "firebase-utils": "./firebase-utils.js"
+  },
   "scripts": {
-    "export": "node export-firestore.js",
-    "import": "node import-firestore.js",
-    "test-permissions": "node test-permissions.js",
+    "export": "node firebase-utils.js -e",
+    "import": "node firebase-utils.js -i",
+    "search": "node firebase-utils.js -s",
+    "test": "node firebase-utils.js -t",
     "install-deps": "npm install"
   },
   "keywords": [
@@ -14,7 +18,9 @@
     "firestore",
     "export",
     "import",
-    "backup"
+    "backup",
+    "search",
+    "utils"
   ],
   "author": "",
   "license": "ISC",
