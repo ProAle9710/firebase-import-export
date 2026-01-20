@@ -48,24 +48,77 @@ node firebase-utils.js <acción> [opciones]
 
 ---
 
-## 📤 1. Exportar Datos de Firestore
+## 🔄 Flujo de Trabajo Típico
 
-Exporta todas las colecciones de un proyecto de Firestore a un archivo JSON:
+### Escenario 1: Migrar UNA colección específica entre proyectos
 
 ```bash
-node firebase-utils.js -e -k <archivo-key.json> [-o <archivo-salida.json>]
+# Paso 1: Exportar SOLO la colección "promos" del proyecto origen
+node firebase-utils.js -e -k keys/proyecto-origen.json -c promos -o promos.json
+
+# Paso 2: Importar al proyecto destino
+node firebase-utils.js -i -k keys/proyecto-destino.json -f promos.json -c promos
+```
+
+### Escenario 2: Migrar TODAS las colecciones entre proyectos
+
+```bash
+# Paso 1: Exportar todas las colecciones del proyecto origen
+node firebase-utils.js -e -k keys/proyecto-origen.json -o backup.json
+
+# Paso 2: Importar todas al proyecto destino
+node firebase-utils.js -i -k keys/proyecto-destino.json -f backup.json
+
+# O importar solo una colección específica del backup completo
+node firebase-utils.js -i -k keys/proyecto-destino.json -f backup.json -c usuarios
+```
+
+### Escenario 3: Hacer backup de un proyecto
+
+```bash
+# Backup de todas las colecciones
+node firebase-utils.js -e -k keys/firebase-key.json -o backup-completo.json
+
+# Backup de una colección específica
+node firebase-utils.js -e -k keys/firebase-key.json -c promos -o backup-promos.json
+```
+
+### Escenario 4: Buscar datos
+
+```bash
+# Buscar en todas las colecciones
+node firebase-utils.js -s -k keys/firebase-key.json -v "texto_a_buscar"
+```
+
+---
+
+## 📤 1. Exportar Datos de Firestore
+
+Exporta todas las colecciones o una colección específica de un proyecto de Firestore a un archivo JSON:
+
+```bash
+node firebase-utils.js -e -k <archivo-key.json> [-o <archivo-salida.json>] [opciones]
 ```
 
 **Parámetros:**
 - `-k, --key <archivo>` (requerido): Ruta al archivo de credenciales del proyecto ORIGEN
 - `-o, --output <archivo>` (opcional): Nombre del archivo de salida (por defecto: `backup.json`)
 
+**Opciones:**
+- `-c, --collection <nombre>` (opcional): Exportar solo una colección específica
+
 **Ejemplos:**
 ```bash
-# Exportar con nombre por defecto
+# Exportar TODAS las colecciones con nombre por defecto
 node firebase-utils.js -e -k keys/firebase-key.json
 
-# Exportar con nombre personalizado
+# Exportar SOLO la colección "promos"
+node firebase-utils.js -e -k keys/firebase-key.json -c promos -o promos.json
+
+# Exportar SOLO la colección "usuarios"
+node firebase-utils.js -e -k keys/firebase-key.json -c usuarios -o usuarios.json
+
+# Exportar todas con nombre personalizado
 node firebase-utils.js --export --key keys/firebase-key.json -o mi-backup.json
 ```
 
@@ -76,17 +129,43 @@ node firebase-utils.js --export --key keys/firebase-key.json -o mi-backup.json
 Importa datos desde un archivo JSON de backup a un proyecto de Firestore:
 
 ```bash
-node firebase-utils.js -i -k <archivo-key-destino.json> -f <archivo-backup.json>
+node firebase-utils.js -i -k <archivo-key-destino.json> -f <archivo-backup.json> [opciones]
 ```
 
 **Parámetros:**
 - `-k, --key <archivo>` (requerido): Ruta al archivo de credenciales del proyecto DESTINO
 - `-f, --file <archivo>` (requerido): Ruta al archivo de backup a importar
 
+**Opciones:**
+- `-c, --collection <nombre>` (opcional): Importar solo una colección específica
+
 **Ejemplos:**
 ```bash
+# Importar todas las colecciones del backup
 node firebase-utils.js -i -k keys/dest-key.json -f backup.json
-node firebase-utils.js --import --key keys/dest-key.json --file mi-backup.json
+
+# Importar solo la colección "promos"
+node firebase-utils.js -i -k keys/dest-key.json -f backup.json -c promos
+
+# Importar solo la colección "usuarios"
+node firebase-utils.js --import --key keys/dest-key.json --file mi-backup.json --collection usuarios
+```
+
+**⚠️ IMPORTANTE - Flujo de Trabajo:**
+La importación requiere un archivo de backup LOCAL. Primero debes EXPORTAR:
+
+```bash
+# Opción 1: Exportar e importar UNA colección específica
+node firebase-utils.js -e -k keys/origen.json -c promos -o promos.json
+node firebase-utils.js -i -k keys/destino.json -f promos.json -c promos
+
+# Opción 2: Exportar TODAS las colecciones e importar solo una
+node firebase-utils.js -e -k keys/origen.json -o backup.json
+node firebase-utils.js -i -k keys/destino.json -f backup.json -c promos
+
+# Opción 3: Exportar e importar TODO
+node firebase-utils.js -e -k keys/origen.json -o backup.json
+node firebase-utils.js -i -k keys/destino.json -f backup.json
 ```
 
 ---
@@ -161,8 +240,11 @@ También puedes usar los scripts definidos en `package.json`:
 # Exportar (requiere pasar -k y -o como argumentos adicionales)
 npm run export -- -k keys/firebase-key.json -o backup.json
 
-# Importar (requiere pasar -k y -f como argumentos adicionales)
+# Importar todas las colecciones (requiere pasar -k y -f como argumentos adicionales)
 npm run import -- -k keys/dest-key.json -f backup.json
+
+# Importar solo una colección específica
+npm run import -- -k keys/dest-key.json -f backup.json -c promos
 
 # Buscar (requiere pasar -k y -v como argumentos adicionales)
 npm run search -- -k keys/firebase-key.json -v "valor"
@@ -195,6 +277,8 @@ npm run install-deps
 4. **Errores**: Si alguna colección falla durante la importación, el script continúa con las demás y muestra un resumen al final
 
 5. **Búsqueda**: La búsqueda puede ser lenta en bases de datos grandes. Usa `--limit` para limitar resultados y `--collection` para buscar en colecciones específicas.
+
+6. **Importación Selectiva**: Puedes importar solo una colección específica usando `-c` o `--collection`. Esto es útil cuando solo necesitas importar una tabla/colección en particular (ej: `promos`, `usuarios`, etc.)
 
 ## 📊 Formato del Backup
 

@@ -24,10 +24,12 @@ function showHelp() {
   console.log('📚 EJEMPLOS DE USO:\n');
   console.log('  # Exportar');
   console.log('  node firebase-utils.js -e -k keys/firebase-key.json');
+  console.log('  node firebase-utils.js -e -k keys/firebase-key.json -c promos -o promos.json');
   console.log('  node firebase-utils.js --export --key keys/firebase-key.json -o backup.json');
   console.log('  node firebase-utils.js -e -k keys/firebase-key.json --with-indexes --with-rules\n');
   console.log('  # Importar');
-  console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json\n');
+  console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json');
+  console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json -c promos\n');
   console.log('  # Buscar');
   console.log('  node firebase-utils.js -s -k keys/firebase-key.json -v "juan@email.com"');
   console.log('  node firebase-utils.js --search --key keys/firebase-key.json --value "12345" --collection usuarios\n');
@@ -87,6 +89,9 @@ function parseArgs() {
     else if ((arg === '-o' || arg === '--output') && args[i + 1]) {
       parsed.options.output = args[i + 1];
       i++;
+    } else if ((arg === '-c' || arg === '--collection') && args[i + 1] && parsed.action === 'export') {
+      parsed.options.exportCollection = args[i + 1];
+      i++;
     } else if (arg === '--with-indexes') {
       parsed.options.withIndexes = true;
     } else if (arg === '--with-rules') {
@@ -95,6 +100,9 @@ function parseArgs() {
     // Opciones de import
     else if ((arg === '-f' || arg === '--file') && args[i + 1]) {
       parsed.options.backupFile = args[i + 1];
+      i++;
+    } else if ((arg === '-c' || arg === '--collection') && args[i + 1] && parsed.action === 'import') {
+      parsed.options.importCollection = args[i + 1];
       i++;
     }
     // Opciones de search
@@ -144,26 +152,32 @@ function showActionHelp(action) {
       console.log('  -k, --key <archivo>        Archivo de credenciales (requerido)');
       console.log('  -o, --output <archivo>     Archivo de salida (opcional, por defecto: backup.json)\n');
       console.log('Opciones:');
+      console.log('  -c, --collection <nombre>  Exportar solo una colección específica');
       console.log('  --with-indexes            Incluir índices de Firestore en la exportación');
       console.log('  --with-rules              Incluir reglas de seguridad en la exportación\n');
-      console.log('Ejemplo:');
+      console.log('Ejemplos:');
       console.log('  node firebase-utils.js -e -k keys/firebase-key.json -o mi-backup.json');
+      console.log('  node firebase-utils.js -e -k keys/firebase-key.json -c promos -o promos.json');
       console.log('  node firebase-utils.js -e -k keys/firebase-key.json --with-indexes --with-rules\n');
       break;
     case 'import':
       console.log('\n📖 Importar Firestore\n');
       console.log('═══════════════════════════════════════════════════════════════\n');
-      console.log('Uso: node firebase-utils.js -i -k <archivo-key.json> -f <archivo-backup.json>\n');
+      console.log('Uso: node firebase-utils.js -i -k <archivo-key.json> -f <archivo-backup.json> [opciones]\n');
       console.log('Parámetros requeridos:');
       console.log('  -k, --key <archivo>        Archivo de credenciales del proyecto DESTINO');
       console.log('  -f, --file <archivo>       Archivo de backup a importar\n');
+      console.log('Opciones:');
+      console.log('  -c, --collection <nombre>  Importar solo una colección específica\n');
       console.log('Notas:');
       console.log('  • Si el backup incluye índices, se importarán automáticamente');
       console.log('  • Si el backup incluye reglas, se importarán automáticamente');
-      console.log('  • Los índices pueden tardar en aplicarse después de la importación\n');
+      console.log('  • Los índices pueden tardar en aplicarse después de la importación');
+      console.log('  • Usa --collection para importar solo una tabla específica (ej: promos)\n');
       console.log('Ejemplos:');
       console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json');
-      console.log('  node firebase-utils.js --import --key keys/dest-key.json --file mi-backup.json\n');
+      console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json -c promos');
+      console.log('  node firebase-utils.js --import --key keys/dest-key.json --file mi-backup.json --collection usuarios\n');
       break;
     case 'search':
       console.log('\n📖 Buscar en Firestore\n');
@@ -425,8 +439,6 @@ async function exportRules(serviceAccount) {
 }
 
 async function exportAllCollections(db, outputFile, serviceAccount, options = {}) {
-  console.log('🚀 Iniciando exportación completa de Firestore...\n');
-  
   const backup = {
     _metadata: {
       exportDate: new Date().toISOString(),
@@ -435,11 +447,20 @@ async function exportAllCollections(db, outputFile, serviceAccount, options = {}
     collections: {}
   };
   
-  const collections = await db.listCollections();
+  let collectionsToExport = [];
   
-  console.log(`📋 Se encontraron ${collections.length} colecciones\n`);
+  // Si se especifica una colección específica
+  if (options.collection) {
+    console.log(`🚀 Iniciando exportación de la colección: ${options.collection}...\n`);
+    collectionsToExport = [{ id: options.collection }];
+  } else {
+    console.log('🚀 Iniciando exportación completa de Firestore...\n');
+    const allCollections = await db.listCollections();
+    collectionsToExport = allCollections;
+    console.log(`📋 Se encontraron ${collectionsToExport.length} colecciones\n`);
+  }
   
-  for (const collection of collections) {
+  for (const collection of collectionsToExport) {
     try {
       backup.collections[collection.id] = await exportCollection(db, collection.id);
     } catch (error) {
@@ -679,7 +700,26 @@ async function importBackup(db, backupFile, serviceAccount, options = {}) {
   console.log(`📖 Leyendo archivo de backup: ${backupFile}...\n`);
   
   if (!fs.existsSync(backupFile)) {
-    throw new Error(`El archivo de backup "${backupFile}" no existe.`);
+    console.log(`❌ El archivo de backup "${backupFile}" no existe.\n`);
+    console.log(`${'='.repeat(70)}`);
+    console.log(`⚠️  IMPORTANTE: Debes EXPORTAR los datos primero`);
+    console.log(`${'='.repeat(70)}\n`);
+    console.log(`La importación requiere un archivo local con los datos de Firebase.`);
+    console.log(`\n📤 Primero EXPORTA los datos de tu proyecto Firebase:\n`);
+    
+    if (options.collection) {
+      console.log(`   Para exportar solo la colección "${options.collection}":`);
+      console.log(`   node firebase-utils.js -e -k keys/firebase-key.json -c ${options.collection} -o ${backupFile}\n`);
+      console.log(`   O exportar todo y luego importar solo esa colección:`);
+      console.log(`   node firebase-utils.js -e -k keys/firebase-key.json -o ${backupFile}\n`);
+    } else {
+      console.log(`   node firebase-utils.js -e -k keys/firebase-key.json -o ${backupFile}\n`);
+    }
+    
+    console.log(`📥 Después puedes importar con el comando que acabas de ejecutar.\n`);
+    console.log(`${'='.repeat(70)}\n`);
+    
+    throw new Error(`Archivo "${backupFile}" no encontrado. Exporta los datos primero.`);
   }
   
   const backupData = JSON.parse(fs.readFileSync(backupFile, 'utf8'));
@@ -698,9 +738,18 @@ async function importBackup(db, backupFile, serviceAccount, options = {}) {
     collections = backupData;
   }
   
-  const collectionNames = Object.keys(collections);
-  
-  console.log(`📋 Se encontraron ${collectionNames.length} colecciones para importar\n`);
+  // Filtrar por colección específica si se especifica
+  let collectionNames = Object.keys(collections);
+  if (options.collection) {
+    if (collections[options.collection]) {
+      collectionNames = [options.collection];
+      console.log(`🎯 Importando solo la colección: ${options.collection}\n`);
+    } else {
+      throw new Error(`La colección "${options.collection}" no existe en el archivo de backup.\nColecciones disponibles: ${collectionNames.join(', ')}`);
+    }
+  } else {
+    console.log(`📋 Se encontraron ${collectionNames.length} colecciones para importar\n`);
+  }
   
   const results = {
     success: [],
@@ -1144,6 +1193,7 @@ async function main() {
       case 'export':
         const outputFile = parsed.options.output || 'backup.json';
         const exportOptions = {
+          collection: parsed.options.exportCollection || null,
           withIndexes: parsed.options.withIndexes || false,
           withRules: parsed.options.withRules || false
         };
@@ -1156,7 +1206,10 @@ async function main() {
           showActionHelp('import');
         }
         console.log('🚀 Iniciando importación de Firestore...\n');
-        await importBackup(db, parsed.options.backupFile, serviceAccount);
+        const importOptions = {
+          collection: parsed.options.importCollection || null
+        };
+        await importBackup(db, parsed.options.backupFile, serviceAccount, importOptions);
         break;
         
       case 'search':
