@@ -307,7 +307,8 @@ async function exportIndexes(serviceAccount) {
     const accessToken = await client.getAccessToken();
     
     const https = require('https');
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/indexes`;
+    // API correcta para índices de Firestore (collection groups)
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/collectionGroups/-/indexes`;
     
     return new Promise((resolve, reject) => {
       https.get(url, {
@@ -320,7 +321,14 @@ async function exportIndexes(serviceAccount) {
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
-            const response = JSON.parse(data);
+            const trimmed = data.trim();
+            if (trimmed.startsWith('<')) {
+              console.log('   ⚠️  No se pudieron obtener índices: la API devolvió HTML (posible error de configuración o de activación de API).');
+              resolve(null);
+              return;
+            }
+
+            const response = JSON.parse(trimmed);
             if (response.error) {
               console.log(`   ⚠️  No se pudieron obtener índices: ${response.error.message}`);
               resolve(null);
@@ -361,8 +369,8 @@ async function exportRules(serviceAccount) {
     const accessToken = await client.getAccessToken();
     
     const https = require('https');
-    // Obtener el ruleset más reciente
-    const listUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/rulesets`;
+    // API correcta para reglas de Firestore (Firebaserules)
+    const listUrl = `https://firebaserules.googleapis.com/v1/projects/${projectId}/releases`;
     
     return new Promise((resolve, reject) => {
       https.get(listUrl, {
@@ -375,52 +383,78 @@ async function exportRules(serviceAccount) {
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
           try {
-            const response = JSON.parse(data);
+            const trimmed = data.trim();
+            if (trimmed.startsWith('<')) {
+              console.log('   ⚠️  No se pudieron obtener reglas: la API devolvió HTML (posible error de configuración o de activación de API).');
+              resolve(null);
+              return;
+            }
+
+            const response = JSON.parse(trimmed);
             if (response.error) {
               console.log(`   ⚠️  No se pudieron obtener reglas: ${response.error.message}`);
               resolve(null);
             } else {
-              const rulesets = response.rulesets || [];
-              if (rulesets.length > 0) {
-                // Obtener el ruleset más reciente
-                const latestRuleset = rulesets.sort((a, b) => 
-                  new Date(b.createTime) - new Date(a.createTime)
-                )[0];
-                
-                // Obtener el contenido del ruleset
-                const getUrl = `https://firestore.googleapis.com/v1/${latestRuleset.name}`;
-                https.get(getUrl, {
-                  headers: {
-                    'Authorization': `Bearer ${accessToken.token}`,
-                    'Content-Type': 'application/json'
-                  }
-                }, (res2) => {
-                  let data2 = '';
-                  res2.on('data', (chunk) => { data2 += chunk; });
-                  res2.on('end', () => {
-                    try {
-                      const rulesetData = JSON.parse(data2);
-                      if (rulesetData.error) {
-                        console.log(`   ⚠️  No se pudo obtener el contenido de las reglas: ${rulesetData.error.message}`);
-                        resolve(null);
-                      } else {
-                        const rules = rulesetData.source?.files?.[0]?.content || null;
-                        console.log(`   ✅ Reglas de seguridad exportadas`);
-                        resolve(rules);
-                      }
-                    } catch (error) {
-                      console.log(`   ⚠️  Error al parsear reglas: ${error.message}`);
-                      resolve(null);
-                    }
-                  });
-                }).on('error', (error) => {
-                  console.log(`   ⚠️  Error al obtener reglas: ${error.message}`);
-                  resolve(null);
-                });
-              } else {
-                console.log(`   ⚠️  No se encontraron reglas de seguridad`);
+              const releases = response.releases || [];
+              if (releases.length === 0) {
+                console.log('   ⚠️  No se encontraron releases de reglas de seguridad');
                 resolve(null);
+                return;
               }
+
+              // Tomamos el release por defecto de Firestore si existe, si no el primero
+              const firestoreRelease = releases.find(r => 
+                r.name && r.name.includes('/rules/firestore.rules')
+              ) || releases[0];
+
+              const rulesetName = firestoreRelease.rulesetName;
+              if (!rulesetName) {
+                console.log('   ⚠️  El release seleccionado no tiene rulesetName');
+                resolve(null);
+                return;
+              }
+
+              const getUrl = `https://firebaserules.googleapis.com/v1/${rulesetName}`;
+              https.get(getUrl, {
+                headers: {
+                  'Authorization': `Bearer ${accessToken.token}`,
+                  'Content-Type': 'application/json'
+                }
+              }, (res2) => {
+                let data2 = '';
+                res2.on('data', (chunk) => { data2 += chunk; });
+                res2.on('end', () => {
+                  try {
+                    const trimmed2 = data2.trim();
+                    if (trimmed2.startsWith('<')) {
+                      console.log('   ⚠️  No se pudo obtener el contenido de las reglas: la API devolvió HTML (posible error de configuración o de activación de API).');
+                      resolve(null);
+                      return;
+                    }
+
+                    const rulesetData = JSON.parse(trimmed2);
+                    if (rulesetData.error) {
+                      console.log(`   ⚠️  No se pudo obtener el contenido de las reglas: ${rulesetData.error.message}`);
+                      resolve(null);
+                    } else {
+                      const rules = rulesetData.source?.files?.[0]?.content || null;
+                      if (!rules) {
+                        console.log('   ⚠️  No se encontró contenido de reglas en el ruleset');
+                        resolve(null);
+                        return;
+                      }
+                      console.log('   ✅ Reglas de seguridad exportadas');
+                      resolve(rules);
+                    }
+                  } catch (error) {
+                    console.log(`   ⚠️  Error al parsear reglas: ${error.message}`);
+                    resolve(null);
+                  }
+                });
+              }).on('error', (error) => {
+                console.log(`   ⚠️  Error al obtener reglas: ${error.message}`);
+                resolve(null);
+              });
             }
           } catch (error) {
             console.log(`   ⚠️  Error al parsear lista de reglas: ${error.message}`);
@@ -569,7 +603,8 @@ async function importIndexes(serviceAccount, indexes) {
     const accessToken = await client.getAccessToken();
     
     const https = require('https');
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/indexes`;
+    // Usar la misma API que en la exportación (collection groups)
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/collectionGroups/-/indexes`;
     
     // Importar cada índice
     let imported = 0;
@@ -590,12 +625,22 @@ async function importIndexes(serviceAccount, indexes) {
             let data = '';
             res.on('data', (chunk) => { data += chunk; });
             res.on('end', () => {
+              const trimmed = data.trim();
               if (res.statusCode >= 200 && res.statusCode < 300) {
                 imported++;
                 resolve();
               } else {
-                const error = JSON.parse(data);
-                console.log(`   ⚠️  Error al importar índice: ${error.error?.message || 'Error desconocido'}`);
+                try {
+                  // Protegernos si la API devuelve HTML u otra cosa no JSON
+                  if (trimmed.startsWith('<')) {
+                    console.log('   ⚠️  Error al importar índice: la API devolvió HTML (posible error de configuración o de activación de API).');
+                  } else {
+                    const error = JSON.parse(trimmed);
+                    console.log(`   ⚠️  Error al importar índice: ${error.error?.message || 'Error desconocido'}`);
+                  }
+                } catch (e) {
+                  console.log(`   ⚠️  Error al importar índice: ${res.statusCode} ${res.statusMessage}`);
+                }
                 resolve(); // Continuar con el siguiente
               }
             });
