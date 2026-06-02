@@ -15,6 +15,8 @@ function showHelp() {
   console.log('  -i, --import     Importar datos desde un archivo JSON');
   console.log('  -s, --search     Buscar un valor en todas las colecciones');
   console.log('  -t, --test       Probar permisos de la cuenta de servicio');
+  console.log('  -d, --delete     Eliminar todos los documentos de una colección');
+  console.log('  -m, --migrate-indexes  Copiar solo índices de Firestore entre proyectos (-k origen --dest-key destino)');
   console.log('  -h, --help       Mostrar esta ayuda\n');
   console.log('═══════════════════════════════════════════════════════════════\n');
   console.log('⚙️  OPCIONES COMUNES:\n');
@@ -34,7 +36,11 @@ function showHelp() {
   console.log('  node firebase-utils.js -s -k keys/firebase-key.json -v "juan@email.com"');
   console.log('  node firebase-utils.js --search --key keys/firebase-key.json --value "12345" --collection usuarios\n');
   console.log('  # Probar permisos');
-  console.log('  node firebase-utils.js -t -k keys/firebase-key.json\n');
+  console.log('  node firebase-utils.js -t -k keys/firebase-key.json');
+  console.log('  # Eliminar colección');
+  console.log('  node firebase-utils.js -d -k keys/firebase-key.json -c audit_logs\n');
+  console.log('  # Migrar solo índices (origen → destino)');
+  console.log('  node firebase-utils.js -m -k keys/landes-test.json --dest-key keys/landes-prod.json\n');
   console.log('  # Ayuda');
   console.log('  node firebase-utils.js --help');
   console.log('  node firebase-utils.js -h');
@@ -50,6 +56,7 @@ function parseArgs() {
   const parsed = {
     action: null,
     keyFile: null,
+    destKeyFile: null,
     options: {}
   };
   
@@ -74,6 +81,10 @@ function parseArgs() {
       parsed.action = 'search';
     } else if (arg === '-t' || arg === '--test') {
       parsed.action = 'test';
+    } else if (arg === '-d' || arg === '--delete') {
+      parsed.action = 'delete';
+    } else if (arg === '-m' || arg === '--migrate-indexes') {
+      parsed.action = 'migrate-indexes';
     } else if (arg === 'help' || arg === '--help-action') {
       parsed.action = 'help';
       if (args[i + 1]) {
@@ -83,6 +94,9 @@ function parseArgs() {
     // Archivo de key
     else if ((arg === '-k' || arg === '--key') && args[i + 1]) {
       parsed.keyFile = args[i + 1];
+      i++;
+    } else if ((arg === '--dest-key') && args[i + 1]) {
+      parsed.destKeyFile = args[i + 1];
       i++;
     }
     // Opciones de export
@@ -103,6 +117,9 @@ function parseArgs() {
       i++;
     } else if ((arg === '-c' || arg === '--collection') && args[i + 1] && parsed.action === 'import') {
       parsed.options.importCollection = args[i + 1];
+      i++;
+    } else if ((arg === '-c' || arg === '--collection') && args[i + 1] && parsed.action === 'delete') {
+      parsed.options.deleteCollection = args[i + 1];
       i++;
     }
     // Opciones de search
@@ -179,6 +196,15 @@ function showActionHelp(action) {
       console.log('  node firebase-utils.js -i -k keys/dest-key.json -f backup.json -c promos');
       console.log('  node firebase-utils.js --import --key keys/dest-key.json --file mi-backup.json --collection usuarios\n');
       break;
+    case 'migrate-indexes':
+      console.log('\n📖 Migrar solo índices entre proyectos\n');
+      console.log('Uso: node firebase-utils.js -m -k <key-origen.json> --dest-key <key-destino.json>\n');
+      console.log('Parámetros:');
+      console.log('  -k, --key <archivo>        Credenciales del proyecto ORIGEN');
+      console.log('  --dest-key <archivo>       Credenciales del proyecto DESTINO\n');
+      console.log('Ejemplo:');
+      console.log('  node firebase-utils.js -m -k keys/landes-test.json --dest-key keys/landes-prod.json\n');
+      break;
     case 'search':
       console.log('\n📖 Buscar en Firestore\n');
       console.log('═══════════════════════════════════════════════════════════════\n');
@@ -216,9 +242,24 @@ function showActionHelp(action) {
       console.log('Ejemplo:');
       console.log('  node firebase-utils.js -t -k keys/firebase-key.json\n');
       break;
+    case 'delete':
+      console.log('\n📖 Eliminar Colección\n');
+      console.log('═══════════════════════════════════════════════════════════════\n');
+      console.log('Uso: node firebase-utils.js -d -k <archivo-key.json> -c <colección>\n');
+      console.log('Parámetros requeridos:');
+      console.log('  -k, --key <archivo>        Archivo de credenciales');
+      console.log('  -c, --collection <nombre>  Nombre de la colección a vaciar\n');
+      console.log('⚠️  ADVERTENCIA:');
+      console.log('  Esta acción eliminará TODOS los documentos excepto 1.');
+      console.log('  Se dejará 1 documento para mantener la estructura.');
+      console.log('  Esta operación NO se puede deshacer.\n');
+      console.log('Ejemplos:');
+      console.log('  node firebase-utils.js -d -k keys/firebase-key.json -c audit_logs');
+      console.log('  node firebase-utils.js --delete --key keys/firebase-key.json --collection test_data\n');
+      break;
     default:
       console.log(`\n❌ Acción desconocida: ${action}\n`);
-      console.log('Acciones disponibles: -e (export), -i (import), -s (search), -t (test)\n');
+      console.log('Acciones disponibles: -e (export), -i (import), -s (search), -t (test), -d (delete), -m (migrate-indexes)\n');
       showHelp();
       break;
   }
@@ -583,6 +624,73 @@ async function importCollection(db, collectionName, documents) {
   return docCount;
 }
 
+/** Quita campos de solo lectura del recurso Index para POST create. */
+function sanitizeIndexForCreate(index) {
+  if (!index || typeof index !== 'object') return index;
+  const copy = JSON.parse(JSON.stringify(index));
+  delete copy.name;
+  delete copy.state;
+  delete copy.progress;
+  delete copy.createTime;
+  delete copy.updateTime;
+  delete copy.etag;
+  return copy;
+}
+
+function getCollectionGroupId(index) {
+  if (!index || typeof index !== 'object') return null;
+  if (index.collectionGroupId && typeof index.collectionGroupId === 'string') {
+    return index.collectionGroupId;
+  }
+  const m = index.name && String(index.name).match(/collectionGroups\/([^/]+)\//);
+  return m ? m[1] : null;
+}
+
+function indexSignature(index) {
+  const m = index.name && String(index.name).match(/collectionGroups\/([^/]+)\//);
+  const group = m ? m[1] : '';
+  const fieldParts = (index.fields || [])
+    .map((f) => `${f.fieldPath}:${f.order || f.arrayConfig || f.vectorConfig || ''}`)
+    .sort();
+  return `${group}|${index.queryScope || ''}|${fieldParts.join(',')}`;
+}
+
+/** Copia índices de Firestore del proyecto origen al destino (solo API REST; sin datos). */
+async function migrateIndexesBetweenProjects(sourceAccount, destAccount) {
+  console.log(`📑 Migración de índices: ${sourceAccount.project_id} → ${destAccount.project_id}\n`);
+
+  const sourceIndexes = await exportIndexes(sourceAccount);
+  if (!sourceIndexes || sourceIndexes.length === 0) {
+    console.log('❌ No hay índices en origen o no se pudieron leer.');
+    return;
+  }
+
+  const destIndexes = await exportIndexes(destAccount);
+  const existing = new Set((destIndexes || []).map(indexSignature));
+
+  const toCreate = [];
+  for (const idx of sourceIndexes) {
+    const sig = indexSignature(idx);
+    if (existing.has(sig)) {
+      continue;
+    }
+    toCreate.push(idx);
+    existing.add(sig);
+  }
+
+  const skipped = sourceIndexes.length - toCreate.length;
+  if (skipped > 0) {
+    console.log(`   ⏭️  ${skipped} índice(s) ya existían en destino (omitidos)\n`);
+  }
+  if (toCreate.length === 0) {
+    console.log('✅ No quedan índices por crear en destino.');
+    return;
+  }
+
+  console.log(`📤 Creando ${toCreate.length} índice(s) en destino...\n`);
+  await importIndexes(destAccount, toCreate);
+}
+
 // Función para importar índices de Firestore
 async function importIndexes(serviceAccount, indexes) {
   if (!indexes || !Array.isArray(indexes) || indexes.length === 0) {
@@ -603,15 +711,24 @@ async function importIndexes(serviceAccount, indexes) {
     const accessToken = await client.getAccessToken();
     
     const https = require('https');
-    // Usar la misma API que en la exportación (collection groups)
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/collectionGroups/-/indexes`;
+    const baseUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/collectionGroups`;
     
     // Importar cada índice
     let imported = 0;
+    let alreadyExists = 0;
+    let failed = 0;
     for (const index of indexes) {
       try {
+        const collectionGroupId = getCollectionGroupId(index);
+        if (!collectionGroupId) {
+          failed++;
+          console.log('   ⚠️  Error al importar índice: no se pudo determinar collectionGroupId');
+          continue;
+        }
+        const url = `${baseUrl}/${encodeURIComponent(collectionGroupId)}/indexes`;
+
         await new Promise((resolve, reject) => {
-          const postData = JSON.stringify(index);
+          const postData = JSON.stringify(sanitizeIndexForCreate(index));
           const options = {
             method: 'POST',
             headers: {
@@ -633,12 +750,21 @@ async function importIndexes(serviceAccount, indexes) {
                 try {
                   // Protegernos si la API devuelve HTML u otra cosa no JSON
                   if (trimmed.startsWith('<')) {
+                    failed++;
                     console.log('   ⚠️  Error al importar índice: la API devolvió HTML (posible error de configuración o de activación de API).');
                   } else {
                     const error = JSON.parse(trimmed);
-                    console.log(`   ⚠️  Error al importar índice: ${error.error?.message || 'Error desconocido'}`);
+                    const message = error.error?.message || 'Error desconocido';
+                    if (message.toLowerCase().includes('index already exists')) {
+                      // Firestore no permite duplicados; si ya existe, lo contamos como presente.
+                      alreadyExists++;
+                    } else {
+                      failed++;
+                      console.log(`   ⚠️  Error al importar índice: ${message}`);
+                    }
                   }
                 } catch (e) {
+                  failed++;
                   console.log(`   ⚠️  Error al importar índice: ${res.statusCode} ${res.statusMessage}`);
                 }
                 resolve(); // Continuar con el siguiente
@@ -659,7 +785,7 @@ async function importIndexes(serviceAccount, indexes) {
       }
     }
     
-    console.log(`   ✅ ${imported} índice(s) importado(s) (puede tomar tiempo en aplicarse)`);
+    console.log(`   ✅ ${imported} índice(s) creado(s), ${alreadyExists} ya existían, ${failed} con error (puede tomar tiempo en aplicarse)`);
   } catch (error) {
     console.log(`   ⚠️  Error al importar índices: ${error.message}`);
     console.log(`   💡 Nota: Los índices pueden requerir configuración manual en la consola de Firebase`);
@@ -1174,6 +1300,54 @@ async function searchAll(db, searchValue, options) {
 }
 
 // ============================================================================
+// FUNCIONES DE DELETE
+// ============================================================================
+
+async function deleteCollection(db, collectionName, batchSize = 500) {
+  console.log(`🗑️  Vaciando colección: ${collectionName}...`);
+  console.log('   💡 Se dejará 1 documento para mantener la estructura\n');
+  
+  const collectionRef = db.collection(collectionName);
+  const query = collectionRef.limit(batchSize);
+
+  return new Promise((resolve, reject) => {
+    deleteQueryBatch(db, query, resolve, reject, collectionName);
+  });
+}
+
+async function deleteQueryBatch(db, query, resolve, reject, collectionName) {
+  try {
+    const snapshot = await query.get();
+
+    if (snapshot.size <= 1) {
+      console.log('\n✅ Colección vaciada (1 documento restante para mantener estructura)');
+      if (snapshot.size === 1) {
+        console.log(`   📄 Documento restante: ${snapshot.docs[0].id}`);
+      }
+      resolve();
+      return;
+    }
+
+    // Eliminar todos menos el último documento
+    const batch = db.batch();
+    const docsToDelete = snapshot.docs.slice(0, -1); // Dejar el último
+    docsToDelete.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+
+    await batch.commit();
+    console.log(`   🗑️  ${docsToDelete.length} documentos eliminados...`);
+
+    // Recursivamente eliminar el siguiente lote
+    process.nextTick(() => {
+      deleteQueryBatch(db, query, resolve, reject, collectionName);
+    });
+  } catch (error) {
+    reject(error);
+  }
+}
+
+// ============================================================================
 // FUNCIONES DE TEST
 // ============================================================================
 
@@ -1224,9 +1398,27 @@ async function main() {
   }
   
   if (!parsed.action) {
-    console.error('❌ Error: Debes especificar una acción (-e, -i, -s, -t)');
+    console.error('❌ Error: Debes especificar una acción (-e, -i, -s, -t, -m)');
     console.error('   Usa -h o --help para ver la ayuda\n');
     showHelp();
+  }
+  
+  if (parsed.action === 'migrate-indexes') {
+    if (!parsed.destKeyFile) {
+      console.error('❌ Error: migrar índices requiere --dest-key <archivo.json>');
+      showActionHelp('migrate-indexes');
+    }
+    const sourceAccount = loadCredentials(parsed.keyFile);
+    const destAccount = loadCredentials(parsed.destKeyFile);
+    try {
+      await migrateIndexesBetweenProjects(sourceAccount, destAccount);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n❌ Error durante la migración de índices:');
+      console.error(error.message);
+      process.exit(1);
+    }
+    return;
   }
   
   const serviceAccount = loadCredentials(parsed.keyFile);
@@ -1274,6 +1466,18 @@ async function main() {
         
       case 'test':
         await testPermissions(db);
+        break;
+        
+      case 'delete':
+        if (!parsed.options.deleteCollection) {
+          console.error('❌ Error: Se requiere el nombre de la colección (-c o --collection)');
+          showActionHelp('delete');
+        }
+        console.log('🚀 Iniciando vaciado de colección...\n');
+        console.log('⚠️  ADVERTENCIA: Esta operación eliminará todos los documentos excepto 1.');
+        console.log(`📦 Colección: ${parsed.options.deleteCollection}\n`);
+        await deleteCollection(db, parsed.options.deleteCollection);
+        console.log('\n🎉 ¡Operación completada!');
         break;
         
       default:
