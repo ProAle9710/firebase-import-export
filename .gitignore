@@ -135,4 +135,31 @@ dist
 .yarn/install-state.gz
 .pnp.*
 /keys
+/keys/**
 /secrets
+/backups
+/backups/**
+
+# Firebase service accounts y signing
+*firebase-adminsdk*.json
+*-adminsdk*.json
+google-services.json
+GoogleService-Info.plist
+*.p8
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+
+# Dumps de datos / PII / hashes
+backup*.json
+restored-*.json
+*-auth.json
+*-firestore.json
+firebase_auth_firestore_users*.csv
+*.csv
+
+# Firebase CLI / export local
+firebase-debug.log
+.firebase/
+/firebase-deploy

@@ -11,6 +11,7 @@
     "import": "node firebase-utils.js -i",
     "search": "node firebase-utils.js -s",
     "test": "node firebase-utils.js -t",
+    "migrate": "node firebase-utils.js --migrate",
     "install-deps": "npm install"
   },
   "keywords": [
