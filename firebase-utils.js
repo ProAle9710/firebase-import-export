@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const admin = require('firebase-admin');
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +19,7 @@ function showHelp() {
   console.log('  -t, --test       Probar permisos de la cuenta de servicio');
   console.log('  -d, --delete     Eliminar todos los documentos de una colección');
   console.log('  -m, --migrate-indexes  Copiar solo índices de Firestore entre proyectos (-k origen --dest-key destino)');
+  console.log('  --migrate-storage  Copiar solo archivos de Storage entre proyectos (-k origen --dest-key destino)');
   console.log('  --migrate        Migración completa origen → destino (Firestore, Auth+hashes, reglas, índices, Storage)');
   console.log('  -h, --help       Mostrar esta ayuda\n');
   console.log('═══════════════════════════════════════════════════════════════\n');
@@ -88,6 +91,8 @@ function parseArgs() {
       parsed.action = 'delete';
     } else if (arg === '-m' || arg === '--migrate-indexes') {
       parsed.action = 'migrate-indexes';
+    } else if (arg === '--migrate-storage') {
+      parsed.action = 'migrate-storage';
     } else if (arg === '--migrate') {
       parsed.action = 'migrate';
     } else if (arg === 'help' || arg === '--help-action') {
@@ -230,6 +235,15 @@ function showActionHelp(action) {
       console.log('Ejemplo:');
       console.log('  node firebase-utils.js -m -k keys/landes-test.json --dest-key keys/landes-prod.json\n');
       break;
+    case 'migrate-storage':
+      console.log('\n📖 Migrar solo archivos de Storage entre proyectos\n');
+      console.log('Uso: node firebase-utils.js --migrate-storage -k <key-origen.json> --dest-key <key-destino.json>\n');
+      console.log('Parámetros:');
+      console.log('  -k, --key <archivo>        Credenciales del proyecto ORIGEN');
+      console.log('  --dest-key <archivo>       Credenciales del proyecto DESTINO\n');
+      console.log('Ejemplo:');
+      console.log('  node firebase-utils.js --migrate-storage -k keys/test.json --dest-key keys/prod.json\n');
+      break;
     case 'migrate':
       console.log('\n📖 Migración completa entre proyectos\n');
       console.log('Uso: node firebase-utils.js --migrate -k <key-origen.json> --dest-key <key-destino.json>\n');
@@ -299,7 +313,7 @@ function showActionHelp(action) {
       break;
     default:
       console.log(`\n❌ Acción desconocida: ${action}\n`);
-      console.log('Acciones disponibles: -e (export), -i (import), -s (search), -t (test), -d (delete), -m (migrate-indexes), --migrate\n');
+      console.log('Acciones disponibles: -e (export), -i (import), -s (search), -t (test), -d (delete), -m (migrate-indexes), --migrate-storage, --migrate\n');
       showHelp();
       break;
   }
@@ -1036,10 +1050,17 @@ async function importRules(serviceAccount, rules, releaseId = 'cloud.firestore')
     }
 
     const releaseName = `projects/${projectId}/releases/${releaseId}`;
-    let published = await httpsRequest(
+    // El PATCH de release no es soportado por la API; se borra y se recrea
+    // apuntando al nuevo ruleset.
+    await httpsRequest(
       `https://firebaserules.googleapis.com/v1/${releaseName}`,
+      { method: 'DELETE', token }
+    );
+
+    const published = await httpsRequest(
+      `https://firebaserules.googleapis.com/v1/projects/${projectId}/releases`,
       {
-        method: 'PATCH',
+        method: 'POST',
         token,
         body: {
           name: releaseName,
@@ -1047,20 +1068,6 @@ async function importRules(serviceAccount, rules, releaseId = 'cloud.firestore')
         }
       }
     );
-
-    if (published.status >= 300) {
-      published = await httpsRequest(
-        `https://firebaserules.googleapis.com/v1/projects/${projectId}/releases`,
-        {
-          method: 'POST',
-          token,
-          body: {
-            name: releaseName,
-            rulesetName: created.data.name
-          }
-        }
-      );
-    }
 
     if (published.status >= 200 && published.status < 300) {
       console.log(`   ✅ Reglas de ${label} importadas`);
@@ -2191,6 +2198,37 @@ async function main() {
       process.exit(0);
     } catch (error) {
       console.error('\n❌ Error durante la migración de índices:');
+      console.error(error.message);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (parsed.action === 'migrate-storage') {
+    if (!parsed.destKeyFile) {
+      console.error('❌ Error: --migrate-storage requiere --dest-key <archivo.json>');
+      showActionHelp('migrate-storage');
+    }
+    const sourceAccount = loadCredentials(parsed.keyFile);
+    const destAccount = loadCredentials(parsed.destKeyFile);
+    try {
+      const sourceApp = admin.initializeApp({
+        credential: admin.credential.cert(sourceAccount),
+        projectId: sourceAccount.project_id,
+        storageBucket: `${sourceAccount.project_id}.firebasestorage.app`
+      }, 'storage-source');
+      const destApp = admin.initializeApp({
+        credential: admin.credential.cert(destAccount),
+        projectId: destAccount.project_id,
+        storageBucket: `${destAccount.project_id}.firebasestorage.app`
+      }, 'storage-dest');
+      console.log('📦 Migración de Storage');
+      console.log(`   Origen:  ${sourceAccount.project_id}`);
+      console.log(`   Destino: ${destAccount.project_id}\n`);
+      await migrateStorageFiles(sourceApp, destApp, sourceAccount, destAccount);
+      process.exit(0);
+    } catch (error) {
+      console.error('\n❌ Error durante la migración de Storage:');
       console.error(error.message);
       process.exit(1);
     }
